@@ -1,0 +1,244 @@
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 800px;
+  margin: 40px auto;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  padding: 40px;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+h1 {
+  text-align: center;
+  color: #2d3748;
+  font-size: 2.5em;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  text-align: center;
+  color: #718096;
+  margin-bottom: 32px;
+  font-size: 1.1em;
+}
+
+.upload-section, .qa-section {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  justify-content: center;
+  align-items: center;
+}
+
+.upload-info {
+  background: #f0fff4;
+  border: 2px solid #38a169;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.upload-info h3 {
+  margin: 0 0 12px 0;
+  color: #38a169;
+}
+
+.upload-info p {
+  margin: 8px 0;
+  color: #2d3748;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.answer-section {
+  margin-top: 32px;
+}
+
+.answer-section h3 {
+  color: #2d3748;
+  margin-bottom: 16px;
+  font-size: 1.3em;
+}
+
+.answer-box {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 24px;
+  min-height: 80px;
+  color: #2d3748;
+  font-size: 1.1em;
+  line-height: 1.6;
+  border: 1px solid #e2e8f0;
+}
+
+.answer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.answer-text {
+  color: #2d3748;
+}
+
+.task-type {
+  padding: 8px 12px;
+  background: #edf2f7;
+  border-radius: 6px;
+  align-self: flex-start;
+}
+
+.task-type small {
+  color: #4a5568;
+  font-weight: 500;
+}
+
+.sources-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid #e2e8f0;
+}
+
+.sources-section h3 {
+  color: #2d3748;
+  margin-bottom: 16px;
+  font-size: 1.3em;
+}
+
+.sources-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.source-section {
+  padding: 16px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.source-section:hover {
+  transform: translateX(4px);
+}
+
+.relevance-score {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: #4f46e5;
+  margin-bottom: 8px;
+}
+
+.source-text {
+  color: #374151;
+  line-height: 1.5;
+  font-size: 0.95em;
+}
+
+button {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  min-width: 120px;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3);
+}
+
+button:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+button.loading {
+  background: linear-gradient(45deg, #4f46e5, #7c3aed, #4f46e5);
+  background-size: 200% 200%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+input[type="file"] {
+  font-size: 1em;
+  padding: 8px;
+  border-radius: 8px;
+  border: 2px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+input[type="file"]:hover {
+  border-color: #4f46e5;
+}
+
+input[type="text"] {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 2px solid #e2e8f0;
+  font-size: 1em;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+}
+
+input[type="text"]:disabled {
+  background: #f7fafc;
+  color: #a0aec0;
+}
+
+@media (max-width: 768px) {
+  .container {
+    margin: 20px;
+    padding: 24px;
+  }
+  
+  .upload-section, .qa-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  h1 {
+    font-size: 2em;
+  }
+}

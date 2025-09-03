@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+venv/
+.env
+.env.*
+
+# FastAPI
+instance/
+
+# Jupyter
+.ipynb_checkpoints
+
+# VSCode
+.vscode/
+
+# Node
+node_modules/
+build/
+dist/
+
+# React
+*.log
+*.lock
+
+# Docker
+*.pid
+*.seed
+*.db
+*.sqlite3
+
+# ChromaDB
+chroma_data/
+
+# Ollama
+ollama_data/
+
+# Uploads
+backend/uploads/
+
+# Misc
+.DS_Store
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Ignore model files
+*.bin
+*.pt
+*.onnx
+*.ckpt
+*.h5
+*.tflite
+*.pb
+
+# Ignore PDF and DOCX test files
