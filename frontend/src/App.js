@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
 import './App.css';
+import './markdown-styles.css';
 
 function App() {
   const [file, setFile] = useState(null);
@@ -10,6 +12,7 @@ function App() {
   const [taskType, setTaskType] = useState('');
   const [uploading, setUploading] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [policyId, setPolicyId] = useState('');
   const [uploadInfo, setUploadInfo] = useState(null);
 
@@ -56,9 +59,28 @@ function App() {
     setAsking(false);
   };
 
+  const handleAnalyze = async () => {
+    if (!policyId) return;
+    setAnalyzing(true);
+    setAnswer('Analyzing your policy document...');
+    try {
+      const res = await axios.post('http://localhost:8001/analyze', {
+        policy_id: policyId,
+      });
+      setAnswer(res.data.answer);
+      setOriginalSections(res.data.original_sections || []);
+      setTaskType(res.data.task_type);
+    } catch (err) {
+      setAnswer('Analysis failed: ' + (err.response?.data?.detail || err.message));
+      setOriginalSections([]);
+    }
+    setAnalyzing(false);
+  };
+
   const getTaskTypeIcon = () => {
     if (taskType === 'compliance') return '⚖️';
     if (taskType === 'translation') return '💬';
+    if (taskType === 'analysis') return '📊';
     return '🤖';
   };
 
@@ -85,7 +107,7 @@ function App() {
 
       {uploadInfo && (
         <div className="upload-info">
-          <h3>✅ Upload Complete</h3>
+          <h3>Upload Complete</h3>
           <p><strong>File:</strong> {uploadInfo.filename}</p>
           {uploadInfo.total_chunks && (
             <>
@@ -93,6 +115,15 @@ function App() {
               <p><strong>Characters processed:</strong> {uploadInfo.total_characters}</p>
             </>
           )}
+          <div className="analysis-section">
+            <button 
+              onClick={handleAnalyze} 
+              disabled={analyzing || !policyId}
+              className={analyzing ? 'loading analysis-btn' : 'analysis-btn'}
+            >
+              {analyzing ? 'Analyzing...' : '📊 AI Analysis'}
+            </button>
+          </div>
         </div>
       )}
       
@@ -115,14 +146,16 @@ function App() {
       </div>
       
       <div className="answer-section">
-        <h3>{getTaskTypeIcon()} Answer</h3>
+        <h3> Answer</h3>
         <div className="answer-box">
           {answer && (
             <div className="answer-content">
-              <div className="answer-text">{answer}</div>
+              <div className="answer-text markdown-content">
+                <ReactMarkdown>{answer}</ReactMarkdown>
+              </div>
               {taskType && (
                 <div className="task-type">
-                  <small>Analysis type: {taskType === 'compliance' ? 'Compliance Review' : 'Plain English Translation'}</small>
+                  {/* <small>Analysis type: {getTaskTypeIcon()} {taskType === 'compliance' ? 'Compliance Review' : taskType === 'translation' ? 'Plain English Translation' : 'Information Retrieval'}</small> */}
                 </div>
               )}
             </div>
@@ -130,28 +163,7 @@ function App() {
         </div>
       </div>
 
-      {originalSections.length > 0 && (
-        <div className="sources-section">
-          <h3>📄 Relevant Policy Sections</h3>
-          <div className="sources-container">
-            {originalSections.map((section, index) => (
-              <div 
-                key={index} 
-                className="source-section"
-                style={{
-                  borderLeft: `4px solid rgba(79, 70, 229, ${section.relevance || 0.5})`,
-                  backgroundColor: `rgba(79, 70, 229, ${(section.relevance || 0.5) * 0.1})`
-                }}
-              >
-                <div className="relevance-score">
-                  Relevance: {Math.round((section.relevance || 0.5) * 100)}%
-                </div>
-                <div className="source-text">{section.text}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Relevant policy sections are hidden as requested */}
     </div>
   );
 }

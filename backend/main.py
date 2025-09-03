@@ -30,9 +30,12 @@ except Exception as e:
     doc_processor = None
 
 try:
-    from agentic_rag import AgenticRAGWorkflow
-    agent_workflow = AgenticRAGWorkflow()
-    print("✅ Agentic RAG workflow initialized successfully")
+    from agentic_rag import AgenticRAGWorkflow, test_ollama_connection
+    if test_ollama_connection():
+        agent_workflow = AgenticRAGWorkflow()
+        print("✅ Agentic RAG workflow with Ollama initialized successfully")
+    else:
+        raise Exception("Ollama connection failed")
 except Exception as e:
     print(f"⚠️  Agentic RAG workflow failed to initialize: {e}")
     print("🔄 Using simple fallback agents")
@@ -64,6 +67,27 @@ policy_registry: Dict[str, Dict] = {}
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/health/ollama")
+def ollama_health():
+    """Check Ollama service and model availability"""
+    try:
+        from agentic_rag import test_ollama_connection
+        is_connected = test_ollama_connection()
+        return {
+            "ollama_available": is_connected,
+            "model": "gemma3:1b",
+            "status": "connected" if is_connected else "disconnected",
+            "agentic_rag_enabled": hasattr(agent_workflow, 'supervisor')
+        }
+    except Exception as e:
+        return {
+            "ollama_available": False,
+            "model": "gemma3:1b",
+            "status": "error",
+            "error": str(e),
+            "agentic_rag_enabled": False
+        }
 
 @app.post("/upload")
 async def upload_policy(file: UploadFile = File(...)):
@@ -128,6 +152,46 @@ async def upload_policy(file: UploadFile = File(...)):
             "note": "Document uploaded in basic mode. Advanced AI features may be limited."
         }
 
+@app.post("/analyze", response_model=QueryResponse)
+async def analyze_policy(request: Dict[str, str]):
+    """Provide comprehensive initial analysis of the uploaded policy"""
+    policy_id = request.get("policy_id")
+    
+    if policy_id not in policy_registry:
+        raise HTTPException(status_code=404, detail="Policy not found.")
+    
+    try:
+        # Create a comprehensive analysis prompt
+        analysis_question = """
+        Please provide a comprehensive initial analysis of this privacy policy including:
+        1. Executive Summary - Brief overview of the policy
+        2. Key Information - Important details users should know
+        3. Data Collection Practices - What data is collected and how
+        4. User Rights - What rights users have regarding their data
+        5. Issues Found - Any concerning practices or unclear language
+        6. Recommendations - Suggestions for improvement or user actions
+        7. Overall Assessment - General evaluation of the policy
+        """
+        
+        # Use the agent workflow to generate the analysis
+        result = agent_workflow.process_query(policy_id, analysis_question)
+        
+        return QueryResponse(
+            answer=result["answer"],
+            task_type="analysis",
+            original_sections=result["original_sections"],
+            status=result["status"]
+        )
+    
+    except Exception as e:
+        # Fallback response
+        return QueryResponse(
+            answer=f"## Analysis Error\n\nI apologize, but I encountered an error analyzing the policy: {str(e)}",
+            task_type="error",
+            original_sections=[],
+            status="error"
+        )
+
 @app.post("/query", response_model=QueryResponse)
 async def query_policy(request: QueryRequest):
     if request.policy_id not in policy_registry:
@@ -152,3 +216,7 @@ async def query_policy(request: QueryRequest):
             original_sections=[],
             status="error"
         )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
