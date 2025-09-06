@@ -1,170 +1,252 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import ReactMarkdown from 'react-markdown';
-import './App.css';
-import './markdown-styles.css';
+import React, { useState, useRef } from "react";
+import axios from "axios";
+import ReactMarkdown from "react-markdown";
+import {
+  FiFilePlus,
+  FiBarChart2,
+  FiBookOpen,
+  FiShield,
+  FiClock,
+} from "react-icons/fi";
+import { FaQuestionCircle, FaUpload } from "react-icons/fa";
+import "./App.css";
+import "./markdown-styles.css";
 
 function App() {
   const [file, setFile] = useState(null);
-  const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [originalSections, setOriginalSections] = useState([]);
-  const [taskType, setTaskType] = useState('');
+  const [question, setQuestion] = useState("");
+  const [history, setHistory] = useState([]); // QnA history
+  const [policyId, setPolicyId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [asking, setAsking] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [policyId, setPolicyId] = useState('');
-  const [uploadInfo, setUploadInfo] = useState(null);
+  const [showHistory, setShowHistory] = useState(true);
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
+  const qaRefs = useRef({}); // map: history index -> ref
+
+  // File upload handler
+  const handleFileChange = (e) => setFile(e.target.files[0]);
 
   const handleUpload = async () => {
     if (!file) return;
     setUploading(true);
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
+
     try {
-      const res = await axios.post('http://localhost:8001/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const res = await axios.post("http://localhost:8001/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
       setPolicyId(res.data.policy_id);
-      setUploadInfo(res.data);
-      setAnswer('Document uploaded and processed successfully!');
-      setOriginalSections([]);
     } catch (err) {
-      setAnswer('Upload failed: ' + (err.response?.data?.detail || err.message));
-      setUploadInfo(null);
+      alert("❌ Upload failed: " + (err.response?.data?.detail || err.message));
     }
     setUploading(false);
   };
 
+  // Ask a question
   const handleAsk = async () => {
     if (!question || !policyId) return;
     setAsking(true);
-    setAnswer('Processing your question...');
+    const newEntry = { id: Date.now(), question, answer: "⏳ Processing..." };
+    setHistory((prev) => [...prev, newEntry]);
+    setQuestion("");
+
     try {
-      const res = await axios.post('http://localhost:8001/query', {
+      const res = await axios.post("http://localhost:8001/query", {
         question,
         policy_id: policyId,
       });
-      setAnswer(res.data.answer);
-      setOriginalSections(res.data.original_sections || []);
-      setTaskType(res.data.task_type);
+      setHistory((prev) =>
+        prev.map((h) =>
+          h.id === newEntry.id ? { ...h, answer: res.data.answer } : h
+        )
+      );
     } catch (err) {
-      setAnswer('Query failed: ' + (err.response?.data?.detail || err.message));
-      setOriginalSections([]);
+      setHistory((prev) =>
+        prev.map((h) =>
+          h.id === newEntry.id
+            ? {
+              ...h,
+              answer:
+                "❌ Query failed: " +
+                (err.response?.data?.detail || err.message),
+            }
+            : h
+        )
+      );
     }
     setAsking(false);
   };
 
+  // Run AI Analysis
   const handleAnalyze = async () => {
     if (!policyId) return;
     setAnalyzing(true);
-    setAnswer('Analyzing your policy document...');
+    const newEntry = {
+      id: Date.now(),
+      question: "AI Analysis",
+      answer: "⏳ Analyzing...",
+    };
+    setHistory((prev) => [...prev, newEntry]);
+
     try {
-      const res = await axios.post('http://localhost:8001/analyze', {
+      const res = await axios.post("http://localhost:8001/analyze", {
         policy_id: policyId,
       });
-      setAnswer(res.data.answer);
-      setOriginalSections(res.data.original_sections || []);
-      setTaskType(res.data.task_type);
+      setHistory((prev) =>
+        prev.map((h) =>
+          h.id === newEntry.id ? { ...h, answer: res.data.answer } : h
+        )
+      );
     } catch (err) {
-      setAnswer('Analysis failed: ' + (err.response?.data?.detail || err.message));
-      setOriginalSections([]);
+      setHistory((prev) =>
+        prev.map((h) =>
+          h.id === newEntry.id
+            ? {
+              ...h,
+              answer:
+                "❌ Analysis failed: " +
+                (err.response?.data?.detail || err.message),
+            }
+            : h
+        )
+      );
     }
     setAnalyzing(false);
   };
 
-  const getTaskTypeIcon = () => {
-    if (taskType === 'compliance') return '⚖️';
-    if (taskType === 'translation') return '💬';
-    if (taskType === 'analysis') return '📊';
-    return '🤖';
+  // Scroll to Q&A block when clicked in history sidebar
+  const scrollToQA = (id) => {
+    const el = qaRefs.current[id];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
-    <div className="container">
-      <h1>🛡️ Privacy Guardian</h1>
-      <p className="subtitle">AI-powered privacy policy analysis and compliance checking</p>
-      
-      <div className="upload-section">
-        <input 
-          type="file" 
-          accept=".pdf,.docx,.txt" 
-          onChange={handleFileChange}
-          disabled={uploading}
-        />
-        <button 
-          onClick={handleUpload} 
-          disabled={uploading || !file}
-          className={uploading ? 'loading' : ''}
-        >
-          {uploading ? 'Processing...' : 'Upload Policy'}
-        </button>
-      </div>
+    <>
 
-      {uploadInfo && (
-        <div className="upload-info">
-          <h3>Upload Complete</h3>
-          <p><strong>File:</strong> {uploadInfo.filename}</p>
-          {uploadInfo.total_chunks && (
-            <>
-              <p><strong>Chunks created:</strong> {uploadInfo.total_chunks}</p>
-              <p><strong>Characters processed:</strong> {uploadInfo.total_characters}</p>
-            </>
-          )}
-          <div className="analysis-section">
-            <button 
-              onClick={handleAnalyze} 
-              disabled={analyzing || !policyId}
-              className={analyzing ? 'loading analysis-btn' : 'analysis-btn'}
-            >
-              {analyzing ? 'Analyzing...' : '📊 AI Analysis'}
-            </button>
-          </div>
-        </div>
-      )}
-      
-      <div className="qa-section">
-        <input
-          type="text"
-          placeholder="Ask about your privacy policy (e.g., 'Who can see my data?' or 'Is this GDPR compliant?')"
-          value={question}
-          onChange={e => setQuestion(e.target.value)}
-          disabled={!policyId || asking}
-          onKeyPress={e => e.key === 'Enter' && handleAsk()}
-        />
-        <button 
-          onClick={handleAsk} 
-          disabled={!policyId || !question || asking}
-          className={asking ? 'loading' : ''}
-        >
-          {asking ? 'Thinking...' : 'Ask'}
-        </button>
-      </div>
-      
-      <div className="answer-section">
-        <h3> Answer</h3>
-        <div className="answer-box">
-          {answer && (
-            <div className="answer-content">
-              <div className="answer-text markdown-content">
-                <ReactMarkdown>{answer}</ReactMarkdown>
-              </div>
-              {taskType && (
-                <div className="task-type">
-                  {/* <small>Analysis type: {getTaskTypeIcon()} {taskType === 'compliance' ? 'Compliance Review' : taskType === 'translation' ? 'Plain English Translation' : 'Information Retrieval'}</small> */}
-                </div>
-              )}
+      <div className="app-container">
+        {/* Sidebar */}
+        <aside className={`sidebar ${showHistory ? "" : "hidden"}`}>
+          <h3>
+            <FiBookOpen style={{ marginRight: "8px" }} /> Q&A History
+          </h3>
+          <ul>
+            {history.map((h) => (
+              <li key={h.id} onClick={() => scrollToQA(h.id)}>
+                {h.question.length > 20 ? h.question.slice(0, 20) + "..." : h.question}
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+
+        {/* Main content */}
+
+        <main className={`main-content ${showHistory ? "" : "full"}`}>
+          <button className="toggle-btn" onClick={() => setShowHistory(!showHistory)}>
+            {showHistory ? "⮜" : "⮞"}
+          </button>
+          <header className="header">
+            <h1>
+              <FiShield style={{ marginRight: "8px" }} /> Privacy Guardian
+            </h1>
+          </header>
+
+          {/* Upload + Actions */}
+          <section className="upload-section">
+            <div className="file-upload">
+              <label htmlFor="file-input" className="file-upload-label">
+                <FaUpload className="upload-icon" />
+                <span>{file ? file.name : "Choose a file"}</span>
+              </label>
+              <input
+                id="file-input"
+                type="file"
+                accept=".pdf,.docx,.txt"
+                onChange={handleFileChange}
+                disabled={uploading}
+              />
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Relevant policy sections are hidden as requested */}
-    </div>
+            <button onClick={handleUpload} disabled={uploading || !file}>
+              {uploading ? (
+                <>
+                  <FiClock style={{ marginRight: "6px" }} /> Uploading...
+                </>
+              ) : (
+                <>
+                  <FiFilePlus style={{ marginRight: "6px" }} /> Upload Policy
+                </>
+              )}
+            </button>
+
+            {policyId && (
+              <button onClick={handleAnalyze} disabled={analyzing}>
+                {analyzing ? (
+                  <>
+                    <FiClock style={{ marginRight: "6px" }} /> Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <FiBarChart2 style={{ marginRight: "6px" }} /> AI Analysis
+                  </>
+                )}
+              </button>
+            )}
+          </section>
+
+          {/* Q&A Section */}
+          <section className="qa-section">
+            <div className="history-box">
+              {history.map((h) => (
+                <div
+                  key={h.id}
+                  ref={(el) => (qaRefs.current[h.id] = el)}
+                  className="qa-pair"
+                >
+                  <p className="question">
+                    <FaQuestionCircle
+                      style={{ marginRight: "6px", color: "#4f46e5" }}
+                    />
+                    {h.question}
+                  </p>
+                  <div className="answer markdown-content">
+                    <ReactMarkdown>{h.answer}</ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Footer Input */}
+          <footer className="input-section">
+            <input
+              type="text"
+              placeholder="Ask about your policy..."
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              disabled={!policyId || asking}
+              onKeyPress={(e) => e.key === "Enter" && handleAsk()}
+            />
+            <button
+              onClick={handleAsk}
+              disabled={!policyId || !question || asking}
+            >
+              {asking ? (
+                <>
+                  <FiClock style={{ marginRight: "6px" }} /> Thinking...
+                </>
+              ) : (
+                <>
+                  <FaQuestionCircle style={{ marginRight: "6px" }} /> Ask
+                </>
+              )}
+            </button>
+          </footer>
+        </main>
+      </div>
+    </>
   );
 }
 
