@@ -6,7 +6,6 @@ Supports any document type: finance, healthcare, legal, technical, etc.
 
 from typing import TypedDict, List, Dict, Any, Annotated
 import operator
-import logging
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from langchain_ollama import OllamaLLM
 from langgraph.graph import StateGraph, END
@@ -14,11 +13,6 @@ from langgraph.prebuilt import ToolExecutor
 from langgraph.checkpoint.memory import MemorySaver
 import ollama
 from document_processor import DocumentProcessor
-from persistent_memory import PersistentChatMemoryManager
-
-# Configure logging for debugging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Define the state for our multi-agent system
 class AgentState(TypedDict):
@@ -35,10 +29,47 @@ class AgentState(TypedDict):
     conversation_history: List[Dict]  # Store last 3 Q&A pairs
     document_type: str  # New field to track document type (finance, healthcare, legal, etc.)
 
-# Chat Memory Manager - now using persistent storage
-class ChatMemoryManager(PersistentChatMemoryManager):
-    """Manages conversation history for context awareness across all document types with persistent storage"""
-    pass
+# Chat Memory Manager
+class ChatMemoryManager:
+    """Manages conversation history for context awareness across all document types"""
+    
+    def __init__(self):
+        self.conversations = {}  # document_id -> List[Dict]
+    
+    def add_conversation(self, document_id: str, question: str, answer: str, task_type: str):
+        """Add a Q&A pair to conversation history"""
+        if document_id not in self.conversations:
+            self.conversations[document_id] = []
+        
+        conversation_entry = {
+            "question": question,
+            "answer": answer,
+            "task_type": task_type,
+            "timestamp": f"{len(self.conversations[document_id]) + 1}"
+        }
+        
+        self.conversations[document_id].append(conversation_entry)
+        
+        # Keep only last 3 conversations
+        if len(self.conversations[document_id]) > 3:
+            self.conversations[document_id] = self.conversations[document_id][-3:]
+    
+    def get_conversation_context(self, document_id: str) -> str:
+        """Get formatted conversation history for context"""
+        if document_id not in self.conversations or not self.conversations[document_id]:
+            return ""
+        
+        context_parts = ["Previous conversation context:"]
+        for conv in self.conversations[document_id]:
+            context_parts.append(f"Q: {conv['question']}")
+            context_parts.append(f"A: {conv['answer'][:200]}...")  # Truncate long answers
+            context_parts.append("---")
+        
+        return "\n".join(context_parts)
+    
+    def get_conversation_history(self, document_id: str) -> List[Dict]:
+        """Get raw conversation history"""
+        return self.conversations.get(document_id, [])
 
 class SupervisorAgent:
     """Supervisor agent that routes queries to specialized agents based on document type and query"""
@@ -66,54 +97,22 @@ class SupervisorAgent:
         # Get document type context
         doc_type = state.get('document_type', 'general')
         
-        classification_prompt = f"""Classify this document question by responding with ONLY a number:
+        classification_prompt = f"""Classify this document question into ONE category:
 {conversation_context}
 Document Type: {doc_type}
 Current Query: "{state['user_query']}"
 
-Classification Options:
-1 - Analysis: Detailed analysis, compliance, risk assessment, evaluation
-2 - Explanation: Explain content in simple terms, clarify concepts
-3 - Extraction: Find specific facts, data, numbers, dates, names
-4 - Summary: Comprehensive overview, key points, main topics
-5 - General: General questions, casual inquiries, broad topics
+Categories:
+- explanation: Explain content in simple terms
+- analysis: Detailed analysis/compliance/risk assessment  
+- extraction: Find specific facts/data/numbers
+- summary: Comprehensive overview/summary
 
-Examples:
-- "Analyze the risks" → 1
-- "What does this mean?" → 2  
-- "Find the contact details" → 3
-- "Summarize the document" → 4
-- "Hello, how are you?" → 5
-
-Respond with ONLY the number (1, 2, 3, 4, or 5):"""
+Answer with ONE word only:"""
         
         try:
-            logger.info(f"🤖 SupervisorAgent - Sending classification query to LLM")
-            logger.debug(f"📝 Classification prompt: {classification_prompt}")
-            
-            classification_response = self.llm.invoke(classification_prompt).strip()
-            
-            logger.info(f"✅ SupervisorAgent - LLM classification response: '{classification_response}'")
-            print(f"LLM Classification result: '{classification_response}'")
-            
-            # Map number to task type
-            classification_map = {
-                '1': 'analysis',
-                '2': 'explanation', 
-                '3': 'extraction',
-                '4': 'summary',
-                '5': 'general'
-            }
-            
-            # Extract the number from response (handle cases like "1." or " 1 " or "The answer is 1")
-            classification_number = None
-            for char in classification_response:
-                if char in '12345':
-                    classification_number = char
-                    break
-            
-            classification = classification_map.get(classification_number, 'general')
-            print(f"Mapped classification: {classification_number} → {classification}")
+            classification = self.llm.invoke(classification_prompt).strip().lower()
+            print(f"LLM Classification result: '{classification}'")
             
             # Special handling for comprehensive analysis requests
             query_lower = state['user_query'].lower()
@@ -123,24 +122,29 @@ Respond with ONLY the number (1, 2, 3, 4, or 5):"""
                 ('summary' in query_lower and any(word in query_lower for word in ['complete', 'full', 'comprehensive', 'detailed']))):
                 classification = 'summary'
             
-            # Fallback if no valid number is found
-            if classification_number is None:
-                print(f"No valid classification number found in '{classification_response}', using fallback logic")
+            # Enhanced fallback classification with better keyword patterns
+            if classification not in ['explanation', 'analysis', 'extraction', 'summary']:
+                print(f"Unknown classification '{classification}', using enhanced fallback logic")
                 
-                # Simple fallback based on common patterns
-                query_lower = state['user_query'].lower()
-                if any(word in query_lower for word in ['analyze', 'compliance', 'risk', 'assess']):
+                # Rule-based classification with priority order
+                if any(word in query_lower for word in ['analyze', 'compliance', 'risk', 'check', 'assess', 'evaluate', 'review']):
                     classification = 'analysis'
-                elif any(word in query_lower for word in ['find', 'extract', 'show', 'tell me', 'what is']):
+                elif any(word in query_lower for word in ['what', 'who', 'when', 'where', 'how', 'which', 'list', 'find', 'show', 'tell me', 'extract', 'data', 'number', 'amount']):
                     classification = 'extraction'
-                elif any(word in query_lower for word in ['summary', 'summarize', 'overview']):
+                elif any(word in query_lower for word in ['explain', 'simple', 'understand', 'mean', 'clarify', 'what does']):
+                    classification = 'explanation'
+                elif any(word in query_lower for word in ['summary', 'overview', 'summarize', 'key points', 'main points']):
                     classification = 'summary'
-                elif any(word in query_lower for word in ['hello', 'hi', 'help', 'how are you', 'thanks']):
-                    classification = 'general'
                 else:
-                    classification = 'explanation'  # Default for document-related questions
+                    # Default based on question structure
+                    if query_lower.startswith(('what', 'who', 'when', 'where', 'how', 'which')):
+                        classification = 'extraction'
+                    elif any(word in query_lower for word in ['is', 'does', 'can', 'will']):
+                        classification = 'explanation'
+                    else:
+                        classification = 'explanation'  # Safe default
                         
-                print(f"Fallback classification: '{classification}'")
+                print(f"Enhanced fallback classification: '{classification}'")
             
             state['task_type'] = classification
             state['current_agent'] = 'supervisor'
@@ -152,14 +156,6 @@ Respond with ONLY the number (1, 2, 3, 4, or 5):"""
                 retrieved_chunks = self.doc_processor.retrieve_relevant_chunks(
                     state['document_id'], state['user_query'], n_results=4
                 )
-                
-                # If no good matches found, try with more chunks or general content
-                if not retrieved_chunks or all(chunk.get("distance", 1.0) > 0.8 for chunk in retrieved_chunks):
-                    # Try to get more general content from the document
-                    retrieved_chunks = self.doc_processor.retrieve_relevant_chunks(
-                        state['document_id'], f"{doc_type} content overview", n_results=6
-                    )
-                
                 state['context_chunks'] = retrieved_chunks
                 state['original_sections'] = [
                     {
@@ -208,10 +204,6 @@ class ExplanationAgent:
             if recent_qa:
                 conversation_context = f"\nPrevious question: {recent_qa[0]['question']}\n"
         
-        # Handle case when no context is available
-        if not context_text.strip():
-            context_text = f"This appears to be a {doc_type} document. Without specific content, I can provide general guidance about {doc_type} documents."
-        
         explanation_prompt = f"""Explain this {doc_type} content in simple terms:
 {conversation_context}
 DOCUMENT TEXT:
@@ -221,31 +213,20 @@ USER QUESTION: {state['user_query']}
 
 Rules:
 - Use everyday language, avoid jargon
-- Answer based on the document text above
-- If specific information not found, provide general guidance based on document type and context
-- For general queries, explain relevant concepts from the document
-- Be helpful and educational even for broad questions
+- Answer only from the document text above
+- If information not found, say "not available in document"
 - Format as markdown with ## heading
-- Max 200 words
+- Max 150 words
 
 ## Simple Explanation:"""
         
         try:
-            logger.info(f"🤖 ExplanationAgent - Sending explanation query to LLM")
-            logger.debug(f"📝 User query: {state['user_query']}")
-            logger.debug(f"📄 Context chunks count: {len(context_text)}")
-            
             response = self.llm.invoke(explanation_prompt)
-            
-            logger.info(f"✅ ExplanationAgent - LLM response received (length: {len(response)} chars)")
-            logger.debug(f"📤 LLM response: {response[:200]}...")  # Log first 200 chars
-            
             state['final_answer'] = response.strip()
             state['current_agent'] = 'explanation'
             state['reasoning_steps'].append("Explanation agent provided simplified explanation")
             
         except Exception as e:
-            logger.error(f"❌ ExplanationAgent failed: {str(e)}")
             state['final_answer'] = f"## Error\n\nI encountered an error explaining the content: {str(e)}"
             state['reasoning_steps'].append(f"Explanation agent error: {str(e)}")
         
@@ -270,10 +251,6 @@ class AnalysisAgent:
         context_text = "\n".join([chunk["text"] for chunk in state['context_chunks'][:4]])
         doc_type = state.get('document_type', 'document')
         
-        # Handle case when no context is available
-        if not context_text.strip():
-            context_text = f"This appears to be a {doc_type} document. I can provide general analysis guidance for {doc_type} documents."
-        
         # Add conversation context for analysis continuity
         conversation_context = ""
         if state.get('conversation_history'):
@@ -288,7 +265,7 @@ DOCUMENT TEXT:
 
 QUESTION: {state['user_query']}
 
-Provide structured analysis based on document type. If specific details aren't available, provide general analysis based on document context and type.
+Provide structured analysis based on document type.
 
 Format:
 ## Analysis Results
@@ -297,25 +274,15 @@ Format:
 ### Recommendations
 ### Assessment: [Low/Medium/High Risk or Good/Fair/Poor]
 
-Be specific when possible, provide general guidance when specific data unavailable. Max 250 words."""
+Be specific and factual. Max 200 words."""
         
         try:
-            logger.info(f"🤖 AnalysisAgent - Sending analysis query to LLM")
-            logger.debug(f"📝 User query: {state['user_query']}")
-            logger.debug(f"📄 Context chunks count: {len(context_text)}")
-            logger.debug(f"📋 Document type: {doc_type}")
-            
             response = self.llm.invoke(analysis_prompt)
-            
-            logger.info(f"✅ AnalysisAgent - LLM response received (length: {len(response)} chars)")
-            logger.debug(f"📤 LLM response: {response[:200]}...")  # Log first 200 chars
-            
             state['final_answer'] = response.strip()
             state['current_agent'] = 'analysis'
             state['reasoning_steps'].append("Analysis agent provided detailed assessment")
             
         except Exception as e:
-            logger.error(f"❌ AnalysisAgent failed: {str(e)}")
             state['final_answer'] = f"## Error\n\nI encountered an error during analysis: {str(e)}"
             state['reasoning_steps'].append(f"Analysis agent error: {str(e)}")
         
@@ -340,10 +307,6 @@ class ExtractionAgent:
         context_text = "\n".join([chunk["text"] for chunk in state['context_chunks'][:4]])
         doc_type = state.get('document_type', 'document')
         
-        # Handle case when no context is available
-        if not context_text.strip():
-            context_text = f"This appears to be a {doc_type} document. I can help with general information about {doc_type} documents."
-        
         # Add conversation context for related questions
         conversation_context = ""
         if state.get('conversation_history'):
@@ -359,30 +322,20 @@ DOCUMENT TEXT:
 QUESTION: {state['user_query']}
 
 Instructions:
-- Extract exact facts, numbers, dates, names if available in the document
-- Quote relevant document text using > blockquotes
-- If specific information not found, explain what related information is available
-- For general queries, provide relevant information from the document context
-- Be helpful and informative even when exact matches aren't found
+- Extract exact facts, numbers, dates, names requested
+- Quote document text using > blockquotes
+- If not found, say "Information not available in document"
+- Be direct and factual
 
 ## Key Information:"""
         
         try:
-            logger.info(f"🤖 ExtractionAgent - Sending extraction query to LLM")
-            logger.debug(f"📝 User query: {state['user_query']}")
-            logger.debug(f"📄 Context chunks count: {len(context_text)}")
-            
             response = self.llm.invoke(extraction_prompt)
-            
-            logger.info(f"✅ ExtractionAgent - LLM response received (length: {len(response)} chars)")
-            logger.debug(f"📤 LLM response: {response[:200]}...")  # Log first 200 chars
-            
             state['final_answer'] = response.strip()
             state['current_agent'] = 'extraction'
             state['reasoning_steps'].append("Extraction agent provided specific information")
             
         except Exception as e:
-            logger.error(f"❌ ExtractionAgent failed: {str(e)}")
             state['final_answer'] = f"## Error\n\nI encountered an error extracting information: {str(e)}"
             state['reasoning_steps'].append(f"Extraction agent error: {str(e)}")
         
@@ -407,10 +360,6 @@ class SummaryAgent:
         # Use more context for comprehensive summary
         context_text = "\n".join([chunk["text"] for chunk in state['context_chunks'][:8]])
         doc_type = state.get('document_type', 'document')
-        
-        # Handle case when no context is available
-        if not context_text.strip():
-            context_text = f"This appears to be a {doc_type} document. I can provide a general framework for understanding {doc_type} documents."
         
         # Add conversation context for related summary
         conversation_context = ""
@@ -444,90 +393,14 @@ General evaluation
 Keep each section concise. Use bullet points where appropriate."""
         
         try:
-            logger.info(f"🤖 SummaryAgent - Sending summary query to LLM")
-            logger.debug(f"📝 User query: {state['user_query']}")
-            logger.debug(f"📄 Context chunks count: {len(context_text)}")
-            logger.debug(f"📋 Document type: {doc_type}")
-            
             response = self.llm.invoke(summary_prompt)
-            
-            logger.info(f"✅ SummaryAgent - LLM response received (length: {len(response)} chars)")
-            logger.debug(f"📤 LLM response: {response[:200]}...")  # Log first 200 chars
-            
             state['final_answer'] = response.strip()
             state['current_agent'] = 'summary'
             state['reasoning_steps'].append("Summary agent provided comprehensive overview")
             
         except Exception as e:
-            logger.error(f"❌ SummaryAgent failed: {str(e)}")
             state['final_answer'] = f"## Error\n\nI encountered an error during summarization: {str(e)}"
             state['reasoning_steps'].append(f"Summary agent error: {str(e)}")
-        
-        return state
-
-
-class GeneralAgent:
-    """Agent specialized in handling general questions and casual conversation"""
-    
-    def __init__(self, model_name: str = "gemma3:1b"):
-        self.llm = OllamaLLM(
-            model=model_name,
-            temperature=0.3,
-            num_predict=800
-        )
-    
-    def handle_general_query(self, state: AgentState) -> AgentState:
-        """Handle general questions that may not be document-specific"""
-        
-        if state['task_type'] != 'general':
-            return state
-        
-        context_text = "\n".join([chunk["text"] for chunk in state['context_chunks'][:2]])
-        doc_type = state.get('document_type', 'document')
-        
-        # Add conversation context for continuity
-        conversation_context = ""
-        if state.get('conversation_history'):
-            recent_qa = state['conversation_history'][-1:]
-            if recent_qa:
-                conversation_context = f"\nPrevious conversation: {recent_qa[0]['question']}\n"
-        
-        general_prompt = f"""You are a helpful AI assistant for document analysis. Handle this general query:
-{conversation_context}
-Document Context (if relevant):
-{context_text}
-
-USER QUESTION: {state['user_query']}
-Document Type: {doc_type}
-
-Instructions:
-- Be helpful and conversational
-- If the question relates to the document, use the context provided
-- For greetings, respond naturally and offer help with document analysis
-- For general questions, provide helpful information and guide toward document-related tasks
-- Keep responses concise and friendly
-- Format as markdown with ## heading
-
-## Response:"""
-        
-        try:
-            logger.info(f"🤖 GeneralAgent - Handling general query")
-            logger.debug(f"📝 User query: {state['user_query']}")
-            logger.debug(f"📄 Context available: {len(context_text) > 0}")
-            
-            response = self.llm.invoke(general_prompt)
-            
-            logger.info(f"✅ GeneralAgent - LLM response received (length: {len(response)} chars)")
-            logger.debug(f"📤 LLM response: {response[:200]}...")  # Log first 200 chars
-            
-            state['final_answer'] = response.strip()
-            state['current_agent'] = 'general'
-            state['reasoning_steps'].append("General agent handled casual/general query")
-            
-        except Exception as e:
-            logger.error(f"❌ GeneralAgent failed: {str(e)}")
-            state['final_answer'] = f"## Hello! 👋\n\nI'm here to help you analyze documents. Feel free to ask me about the document you've uploaded, or upload a new document to get started!\n\nI can help with:\n- Explaining content in simple terms\n- Analyzing risks and compliance\n- Finding specific information\n- Providing summaries"
-            state['reasoning_steps'].append(f"General agent used fallback response due to error: {str(e)}")
         
         return state
 
@@ -536,23 +409,16 @@ class AgenticRAGWorkflow:
     """Main workflow orchestrator for multi-agent RAG system supporting any document type"""
     
     def __init__(self, model_name: str = "gemma3:1b"):
-        logger.info(f"🚀 Initializing AgenticRAGWorkflow with model: {model_name}")
-        
         self.model_name = model_name
         self.memory_manager = ChatMemoryManager()
-        
-        logger.info("🤖 Initializing specialized agents...")
         self.supervisor = SupervisorAgent(model_name)
         self.explanation_agent = ExplanationAgent(model_name)
         self.analysis_agent = AnalysisAgent(model_name)
         self.extraction_agent = ExtractionAgent(model_name)
         self.summary_agent = SummaryAgent(model_name)
-        self.general_agent = GeneralAgent(model_name)
         
-        logger.info("🔧 Building workflow graph...")
         # Build the workflow graph
         self.workflow = self._build_workflow()
-        logger.info("✅ AgenticRAGWorkflow initialization complete!")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow with conditional routing"""
@@ -565,7 +431,6 @@ class AgenticRAGWorkflow:
         workflow.add_node("analysis", self.analysis_agent.analyze_document)
         workflow.add_node("extraction", self.extraction_agent.extract_information)
         workflow.add_node("summary", self.summary_agent.comprehensive_summary)
-        workflow.add_node("general", self.general_agent.handle_general_query)
         
         # Set entry point
         workflow.set_entry_point("supervisor")
@@ -579,8 +444,6 @@ class AgenticRAGWorkflow:
                 return 'extraction'
             elif task == 'summary':
                 return 'summary'
-            elif task == 'general':
-                return 'general'
             else:
                 return 'explanation'
         
@@ -591,8 +454,7 @@ class AgenticRAGWorkflow:
                 "explanation": "explanation",
                 "analysis": "analysis", 
                 "extraction": "extraction",
-                "summary": "summary",
-                "general": "general"
+                "summary": "summary"
             }
         )
         
@@ -601,7 +463,6 @@ class AgenticRAGWorkflow:
         workflow.add_edge("analysis", END)
         workflow.add_edge("extraction", END)
         workflow.add_edge("summary", END)
-        workflow.add_edge("general", END)
         
         # Compile with memory for state persistence
         memory = MemorySaver()
@@ -610,15 +471,10 @@ class AgenticRAGWorkflow:
     def process_query(self, document_id: str, user_query: str, document_type: str = "general") -> Dict[str, Any]:
         """Process a user query through the multi-agent RAG system"""
         
-        logger.info(f"🚀 Starting agentic RAG workflow for {document_type} document")
-        logger.info(f"📝 Document ID: {document_id}")
-        logger.info(f"❓ User query: {user_query}")
-        
         print(f"🚀 Starting agentic RAG workflow for {document_type} document query: '{user_query[:50]}...'")
         
         # Get conversation history for context
         conversation_history = self.memory_manager.get_conversation_history(document_id)
-        logger.debug(f"📚 Retrieved {len(conversation_history)} previous conversations")
         
         # Initialize state with conversation history and document type
         initial_state = AgentState(
@@ -639,14 +495,7 @@ class AgenticRAGWorkflow:
         try:
             # Run the workflow
             config = {"configurable": {"thread_id": f"thread_{document_id}"}}
-            
-            logger.info(f"🔄 Invoking workflow with config: {config}")
             result = self.workflow.invoke(initial_state, config)
-            
-            logger.info(f"✅ Workflow completed successfully")
-            logger.info(f"🎯 Task type determined: {result.get('task_type', 'unknown')}")
-            logger.info(f"📤 Final answer length: {len(result.get('final_answer', ''))} chars")
-            logger.debug(f"💬 Final answer preview: {result.get('final_answer', '')[:100]}...")
             
             # Save conversation to memory
             self.memory_manager.add_conversation(
@@ -656,8 +505,6 @@ class AgenticRAGWorkflow:
                 result.get('task_type', 'unknown')
             )
             
-            logger.info(f"💾 Conversation saved to persistent memory")
-            
             return {
                 "answer": result.get('final_answer', 'No answer generated'),
                 "task_type": result.get('task_type', 'unknown'),
@@ -670,97 +517,6 @@ class AgenticRAGWorkflow:
             }
             
         except Exception as e:
-            logger.error(f"❌ Workflow execution failed: {str(e)}")
-            logger.error(f"🔧 Error details: {type(e).__name__}")
-            
-            return {
-                "answer": f"## Error\n\nI encountered an error processing your query: {str(e)}",
-                "task_type": "error",
-                "context_chunks": [],
-                "original_sections": [],
-                "reasoning_steps": [f"Workflow error: {str(e)}"],
-                "current_agent": "error",
-                "document_type": document_type,
-                "status": "error"
-            }
-    
-    def process_query_with_conversation(self, document_id: str, user_query: str, 
-                                      document_type: str = "general", conversation_id: str = None) -> Dict[str, Any]:
-        """Process a user query with specific conversation context"""
-        
-        logger.info(f"🚀 Starting agentic RAG workflow with conversation context")
-        logger.info(f"📝 Document ID: {document_id}")
-        logger.info(f"💬 Conversation ID: {conversation_id}")
-        logger.info(f"❓ User query: {user_query}")
-        
-        # Get conversation-specific history if conversation_id provided
-        if conversation_id:
-            conversation_history = self.memory_manager.get_conversation_messages(conversation_id)
-            # Convert to expected format
-            conversation_history = [
-                {
-                    "question": msg["question"],
-                    "answer": msg["answer"],
-                    "task_type": msg["task_type"]
-                }
-                for msg in conversation_history[-3:]  # Last 3 for context
-            ]
-        else:
-            # Fall back to document-based history
-            conversation_history = self.memory_manager.get_conversation_history(document_id)
-        
-        logger.debug(f"📚 Retrieved {len(conversation_history)} conversation messages")
-        
-        # Initialize state with conversation history and document type
-        initial_state = AgentState(
-            messages=[HumanMessage(content=user_query)],
-            document_id=document_id,
-            user_query=user_query,
-            task_type="",
-            context_chunks=[],
-            current_agent="",
-            final_answer="",
-            original_sections=[],
-            reasoning_steps=[],
-            next_agent="",
-            conversation_history=conversation_history,
-            document_type=document_type
-        )
-        
-        try:
-            # Run the workflow
-            config = {"configurable": {"thread_id": f"thread_{conversation_id or document_id}"}}
-            
-            logger.info(f"🔄 Invoking workflow with config: {config}")
-            result = self.workflow.invoke(initial_state, config)
-            
-            logger.info(f"✅ Workflow completed successfully")
-            
-            # Save conversation to memory with conversation_id
-            self.memory_manager.add_conversation(
-                document_id=document_id,
-                question=user_query, 
-                answer=result.get('final_answer', 'No answer generated'),
-                task_type=result.get('task_type', 'unknown'),
-                conversation_id=conversation_id or document_id
-            )
-            
-            logger.info(f"💾 Conversation saved to persistent memory")
-            
-            return {
-                "answer": result.get('final_answer', 'No answer generated'),
-                "task_type": result.get('task_type', 'unknown'),
-                "context_chunks": result.get('context_chunks', []),
-                "original_sections": result.get('original_sections', []),
-                "reasoning_steps": result.get('reasoning_steps', []),
-                "current_agent": result.get('current_agent', 'unknown'),
-                "document_type": result.get('document_type', 'general'),
-                "status": "success"
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Workflow execution failed: {str(e)}")
-            
             return {
                 "answer": f"## Error\n\nI encountered an error processing your query: {str(e)}",
                 "task_type": "error",
@@ -776,36 +532,23 @@ class AgenticRAGWorkflow:
 def test_ollama_connection(model_name: str = "gemma3:1b") -> bool:
     """Test if Ollama is running and model is available"""
     try:
-        logger.info(f"🔍 Testing Ollama connection with model: {model_name}")
-        
         client = ollama.Client()
         response = client.chat(
             model=model_name,
             messages=[{'role': 'user', 'content': 'Hello, respond with just "OK"'}]
         )
-        
-        success = "ok" in response['message']['content'].lower()
-        logger.info(f"✅ Ollama connection test {'passed' if success else 'failed'}")
-        logger.debug(f"📤 Test response: {response['message']['content']}")
-        
-        return success
+        return "ok" in response['message']['content'].lower()
     except Exception as e:
-        logger.error(f"❌ Ollama connection test failed: {e}")
         print(f"Ollama connection test failed: {e}")
         return False
 
 if __name__ == "__main__":
     # Test the agentic RAG system
-    logger.info("🧪 Starting Agentic RAG System test...")
     print("Testing Agentic RAG System...")
     
     if test_ollama_connection():
         print("✅ Ollama connection successful!")
-        logger.info("✅ Ollama connection successful!")
-        
         workflow = AgenticRAGWorkflow()
         print("✅ Agentic RAG workflow initialized!")
-        logger.info("✅ Agentic RAG workflow initialized!")
     else:
         print("❌ Ollama connection failed!")
-        logger.error("❌ Ollama connection failed!")

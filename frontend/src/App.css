@@ -1,123 +1,46 @@
 /* Global Styles */
 body {
   font-family: 'Segoe UI', Arial, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #1a1a1a;
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
+  color: #fff;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* App Layout */
 .app-container {
-  display: flex;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-  position: relative;
-}
-
-/* Sidebar */
-.sidebar {
-  width: 260px;
-  background: #1e293b;
-  color: #f1f5f9;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  border-right: 2px solid #334155;
-  overflow-y: auto;
-  transition: transform 0.3s ease-in-out;
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 100%;
-  transform: translateX(0);
-  z-index: 1000;
-}
-
-.sidebar.hidden {
-  transform: translateX(-100%);
-}
-
-.sidebar h3 {
-  /* margin: 0 0 16px 0; */
-  margin-top: 7vh;
-  margin-left: 3vw;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #e2e8f0;
-
-}
-
-.sidebar ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.sidebar li {
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  background: #334155;
-  transition: background 0.2s ease, transform 0.2s ease;
-  font-size: 0.95rem;
-}
-
-.sidebar li:hover {
-  background: #475569;
-  transform: translateX(4px);
+  display: flex !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  position: relative !important;
 }
 
 /* Main Content */
 .main-content {
   flex: 1;
-  margin-left: 260px;
-  /* offset when sidebar is visible */
   display: flex;
   flex-direction: column;
   background: #f9fafb;
-  transition: margin-left 0.3s ease;
-}
-
-.main-content.full {
-  margin-left: 0;
-  /* take full width when sidebar hidden */
-}
-
-/* Floating Toggle Button */
-.toggle-btn {
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 1100;
-  background: #4f46e5;
-  color: white;
-  border: none;
-  padding: 10px 14px;
-  border-radius: 50%;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.toggle-btn:hover {
-  background: #4338ca;
-  transform: scale(1.1);
+  overflow: hidden;
 }
 
 /* Header */
 .header {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   padding: 16px 24px;
   border-bottom: 2px solid #e2e8f0;
   background: #fff;
+  color: #1f2937;
 }
 
 .header h1 {
@@ -126,17 +49,20 @@ body {
   font-weight: 700;
   background: linear-gradient(135deg, #667eea, #764ba2);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 /* Upload Section */
 .upload-section {
-  margin-top: 5vh;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
+  padding: 16px 24px;
   flex-wrap: wrap;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .file-upload {
@@ -200,13 +126,15 @@ body {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
-  margin: 0 7vw;
+  background: #f8fafc;
 }
 
 .history-box {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 /* Chat-style bubbles */
@@ -254,8 +182,10 @@ body {
   padding: 16px 20px;
   background: #fff;
   border-top: 2px solid #e2e8f0;
-  cursor: pointer;
-  margin: 0 7vw;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .input-section input {
@@ -320,17 +250,60 @@ body {
   }
 }
 
+/* Conversation Management Styles */
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.conversation-indicator {
+  background: #007acc;
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.empty-chat {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #888;
+}
+
+.empty-chat p {
+  margin-top: 1rem;
+  font-size: 1.1rem;
+}
+
+/* Task Type Indicators */
+.task-type {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin-left: 0.5rem;
+  text-transform: capitalize;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
-  .sidebar {
-    transform: translateX(-100%);
+  .conversation-sidebar {
+    width: 250px;
   }
-
-  .sidebar.active {
-    transform: translateX(0);
+  
+  .qa-section {
+    padding: 15px;
   }
-
-  .main-content {
-    margin-left: 0 !important;
+  
+  .history-box {
+    max-width: none;
+  }
+  
+  .input-section {
+    max-width: none;
+    padding: 12px;
   }
 }
